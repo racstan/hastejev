@@ -1,10 +1,95 @@
 import math
 import re
+import zlib
 import datetime
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple, Optional
+
+class FastSubwordProjector(nn.Module):
+    """
+    Subword and Character N-Gram Latent Hash Projector.
+    Maps words and textual phrases into continuous semantic embeddings via
+    deterministic character 3-gram, 4-gram, and whole-word trigonometric frequency hashing.
+    Enables instant zero-shot semantic matching without heavy pretraining overhead.
+    """
+    def __init__(self, d_model: int = 256, table_size: int = 65536):
+        super().__init__()
+        self.d_model = d_model
+        self.table_size = table_size
+        
+        # Precompute deterministic Gaussian random projection table (SimHash)
+        g = torch.Generator().manual_seed(42)
+        table = torch.randn(table_size, d_model, generator=g)
+        table = F.normalize(table, p=2, dim=-1)
+        self.register_buffer("table", table)
+        
+        self.proj = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.GELU(),
+            nn.LayerNorm(d_model)
+        )
+        nn.init.eye_(self.proj[0].weight)
+        nn.init.zeros_(self.proj[0].bias)
+
+    @staticmethod
+    def _clean_words(text: str) -> List[str]:
+        return re.findall(r'[a-zA-Z0-9_\-\$]+', text.lower())
+
+    def text_to_latent(self, text: str, device: torch.device) -> torch.Tensor:
+        words = self._clean_words(text)
+        if not words:
+            return torch.zeros((1, 1, self.d_model), device=device)
+        
+        table = self.table.to(device)
+        word_vectors = []
+        for w in words[:32]:
+            ngrams = [f'<{w}>', w]
+            for n in (3, 4):
+                for i in range(len(w) - n + 1):
+                    ngrams.append(w[i:i+n])
+            hashes = [zlib.crc32(ng.encode('utf-8')) % self.table_size for ng in ngrams]
+            vec = table[hashes].sum(dim=0)
+            norm = torch.norm(vec, p=2)
+            if norm > 1e-6:
+                vec = vec / norm
+            word_vectors.append(vec)
+            
+        stacked = torch.stack(word_vectors, dim=0).unsqueeze(0)
+        return self.proj(stacked)
+
+    def batch_text_to_latent(self, texts: List[str], device: torch.device) -> torch.Tensor:
+        all_vecs = []
+        table = self.table.to(device)
+        for text in texts:
+            words = self._clean_words(text)
+            if not words:
+                all_vecs.append(torch.zeros(self.d_model, device=device))
+                continue
+            
+            ngrams = []
+            for w in words[:32]:
+                ngrams.append(f'<{w}>')
+                ngrams.append(w)
+                for n in (3, 4):
+                    for i in range(len(w) - n + 1):
+                        ngrams.append(w[i:i+n])
+            hashes = [zlib.crc32(ng.encode('utf-8')) % self.table_size for ng in ngrams]
+            vec = table[hashes].sum(dim=0)
+            norm = torch.norm(vec, p=2)
+            if norm > 1e-6:
+                vec = vec / norm
+            all_vecs.append(vec)
+            
+        stacked = torch.stack(all_vecs, dim=0).unsqueeze(0)
+        return self.proj(stacked)
+
+
+
+
+
+
 
 class STFELayer(nn.Module):
     """
@@ -90,12 +175,20 @@ class PICAHead(nn.Module):
             nn.GELU(),
             nn.Linear(d_model // 2, 1)
         )
+        for p in self.mha.parameters():
+            p.data.mul_(0.01)
+        for p in self.score_proj.parameters():
+            p.data.mul_(0.01)
 
     def forward(self, state_rep: torch.Tensor, option_reps: torch.Tensor) -> torch.Tensor:
+
         attn_out, _ = self.mha(query=option_reps, key=state_rep, value=state_rep)
+        state_mean = state_rep.mean(dim=1, keepdim=True)
+        sim = torch.bmm(option_reps, state_mean.transpose(1, 2)).squeeze(-1)
         fused = self.norm(option_reps + attn_out)
-        scores = self.score_proj(fused).squeeze(-1)
+        scores = self.score_proj(fused).squeeze(-1) + (sim * 4.0)
         return scores
+
 
 class H2SoftmaxEngine:
     """
