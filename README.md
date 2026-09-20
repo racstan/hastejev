@@ -1,3 +1,32 @@
+---
+language:
+- en
+library_name: transformers
+license: apache-2.0
+pipeline_tag: feature-extraction
+tags:
+- jev
+- hastejev
+- decision-engine
+- system-1
+- pica
+- zero-bias
+- low-latency
+- non-generative
+- autonomous-agents
+- browser-control
+- web-automation
+- agentic-ai
+- fast-inference
+- decision-making
+- calibration
+- safetensors
+- pytorch
+- reasoning
+- foundation-model
+- reinforcement-learning
+---
+
 # ⚡ Haste Jev: Non-Generative System-1 AI Decision Engine
 
 [![Hugging Face Model](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-noffy%2Fhastejev-yellow)](https://huggingface.co/noffy/hastejev)
