@@ -32,7 +32,14 @@ ENV/
 .idea/
 *.swp
 
-# Kaggle / outputs
+# Kaggle / outputs and build tooling
 .ipynb_checkpoints/
 kaggle_kernel/output/
 kaggle_kernel/executed_notebook/
+kaggle_kernel/build_notebook.py
+
+# Raw research notes (not needed in published repo)
+research.txt
+
+# Examples (removed as per project scope)
+examples/
