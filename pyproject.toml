@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hastejev"
+version = "0.1.0"
+description = "Ultra-Low-Latency, Zero-Copy System-1 AI Decision Engine"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "hastejev Team" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.0.0",
+    "numpy>=1.20.0",
+    "scipy>=1.7.0",
+    "scikit-learn>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "matplotlib>=3.5.0",
+    "seaborn>=0.12.0",
+    "transformers>=4.30.0",
+    "huggingface-hub>=0.20.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rachitasthana/hastejev"
+Repository = "https://github.com/rachitasthana/hastejev"
