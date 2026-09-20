@@ -59,5 +59,24 @@ class TestHasteJevEngine(unittest.TestCase):
         self.assertEqual(res.primitive, "SetChoice")
         self.assertIsInstance(res.selected_subset, list)
 
+    def test_save_and_load_pretrained(self):
+        import tempfile
+        import os
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.engine.save_pretrained(tmpdir)
+            self.assertTrue(os.path.exists(os.path.join(tmpdir, "config.json")))
+            self.assertTrue(os.path.exists(os.path.join(tmpdir, "model.safetensors")))
+            self.assertTrue(os.path.exists(os.path.join(tmpdir, "pytorch_model.bin")))
+            
+            loaded_engine = HasteJevEngine.from_pretrained(tmpdir)
+            self.assertEqual(loaded_engine.d_model, self.engine.d_model)
+            
+            # Check inference match
+            res1 = self.engine.choice("Test state", ["Opt 1", "Opt 2"])
+            res2 = loaded_engine.choice("Test state", ["Opt 1", "Opt 2"])
+            self.assertEqual(res1.decision, res2.decision)
+            self.assertAlmostEqual(res1.probabilities["Opt 1"], res2.probabilities["Opt 1"], places=4)
+
 if __name__ == "__main__":
     unittest.main()
+

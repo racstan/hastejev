@@ -1,12 +1,14 @@
-# ⚡ hastejev: Non-Generative System-1 AI Decision Engine
+# ⚡ Haste Jev: Non-Generative System-1 AI Decision Engine
 
+[![Hugging Face Model](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-noffy%2Fhastejev-yellow)](https://huggingface.co/noffy/hastejev)
+[![GitHub Repository](https://img.shields.io/badge/GitHub-racstan%2Fhastejev-black?logo=github)](https://github.com/racstan/hastejev)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Kaggle GPU Verified](https://img.shields.io/badge/Kaggle_GPU-Verified-20BEFF.svg)](https://www.kaggle.com/code/rachitasthana/hastejev-system1-decision-engine)
 [![Latency](https://img.shields.io/badge/p99_Latency-<15ms-brightgreen.svg)]()
 [![Option Bias](https://img.shields.io/badge/Option_Order_Bias-0.0%25-success.svg)]()
 
-> **hastejev** is an open-weights, ultra-low-latency, zero-copy **System-1 Decision Engine** engineered to solve the fundamental architectural bottlenecks of hosted decision services (like TypeSafe Jev) and LLM-based open-source alternatives.
+> **Haste Jev** is an open-weights, ultra-low-latency, zero-copy **System-1 Decision Engine** engineered to solve the fundamental architectural bottlenecks of hosted decision services (like TypeSafe Jev) and LLM-based open-source alternatives.
 
 ---
 

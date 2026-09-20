@@ -180,3 +180,77 @@ class HasteJevEngine(nn.Module):
                 selected_subset=selected,
                 marginal_probabilities={options[i]: float(marginal_probs[i]) for i in range(len(options))}
             )
+
+    def save_pretrained(self, save_directory: str):
+        """
+        Exports the Haste Jev model in industry-standard format (config.json + model.safetensors + pytorch_model.bin).
+        """
+        import os
+        import json
+        from safetensors.torch import save_file
+
+        os.makedirs(save_directory, exist_ok=True)
+        config = {
+            "architectures": ["HasteJevEngine"],
+            "model_type": "hastejev",
+            "d_model": self.d_model,
+            "vocab_size": self.vocab_size,
+            "calibrator_temperature": self.calibrator.temperature,
+            "torch_dtype": "float32",
+            "hastejev_version": "1.0.0"
+        }
+        
+        config_path = os.path.join(save_directory, "config.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+            
+        weights_path_safetensors = os.path.join(save_directory, "model.safetensors")
+        save_file(self.state_dict(), weights_path_safetensors)
+        
+        weights_path_bin = os.path.join(save_directory, "pytorch_model.bin")
+        torch.save(self.state_dict(), weights_path_bin)
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path: str, device: Optional[torch.device] = None) -> "HasteJevEngine":
+        """
+        Loads a Haste Jev model from a local directory or the Hugging Face Hub (e.g. 'noffy/hastejev').
+        """
+        import os
+        import json
+        
+        model_dir = pretrained_model_name_or_path
+        if not os.path.isdir(pretrained_model_name_or_path):
+            try:
+                from huggingface_hub import snapshot_download
+                model_dir = snapshot_download(repo_id=pretrained_model_name_or_path)
+            except Exception as e:
+                raise ValueError(f"Could not find local directory or download from Hugging Face Hub '{pretrained_model_name_or_path}': {e}")
+                
+        config_path = os.path.join(model_dir, "config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = json.load(f)
+        else:
+            config = {}
+            
+        d_model = config.get("d_model", 256)
+        instance = cls(d_model=d_model, device=device)
+        
+        safetensors_path = os.path.join(model_dir, "model.safetensors")
+        bin_path = os.path.join(model_dir, "pytorch_model.bin")
+        
+        if os.path.exists(safetensors_path):
+            from safetensors.torch import load_file
+            state_dict = load_file(safetensors_path, device=str(instance.device))
+            instance.load_state_dict(state_dict)
+        elif os.path.exists(bin_path):
+            state_dict = torch.load(bin_path, map_location=instance.device)
+            instance.load_state_dict(state_dict)
+            
+        if "calibrator_temperature" in config:
+            instance.calibrator.temperature = config["calibrator_temperature"]
+            instance.calibrator.is_fitted = True
+            
+        instance.eval()
+        return instance
+
