@@ -1,23 +1,44 @@
 """
-hastejev: Ultra-Low-Latency, Zero-Copy System-1 AI Decision Engine
+Haste Jev: Non-Generative System-1 AI Decision Engine.
+Zero-latency, zero-bias, open-weights decision primitive framework.
 """
 
 from hastejev.engine import HasteJevEngine
-from hastejev.layers import STFELayer, PICAHead, H2SoftmaxEngine, ScalarTemporalParser
+from hastejev.config import HasteJevConfig
+from hastejev.quantization import quantize_model, QuantizedLinear8bit, QuantizedLinear4bit
+from hastejev.layers import (
+    STFELayer,
+    PICAHead,
+    H2SoftmaxEngine,
+    ScalarTemporalParser,
+    FastSubwordProjector,
+)
+from hastejev.primitives import (
+    ChoiceResult,
+    ScoreResult,
+    NoulResult,
+    RangeResult,
+    SetChoiceResult,
+)
 from hastejev.calibration import HITCalibrator
-from hastejev.primitives import ChoiceResult, ScoreResult, NoulResult, RangeResult, SetChoiceResult
 
-__version__ = "0.1.0"
+__version__ = "1.1.0"
+
 __all__ = [
     "HasteJevEngine",
+    "HasteJevConfig",
+    "quantize_model",
+    "QuantizedLinear8bit",
+    "QuantizedLinear4bit",
     "STFELayer",
     "PICAHead",
     "H2SoftmaxEngine",
     "ScalarTemporalParser",
-    "HITCalibrator",
+    "FastSubwordProjector",
     "ChoiceResult",
     "ScoreResult",
     "NoulResult",
     "RangeResult",
     "SetChoiceResult",
+    "HITCalibrator",
 ]

@@ -115,7 +115,7 @@ class STFELayer(nn.Module):
             x = x.unsqueeze(-1)
         
         batch_size, seq_len = x.shape
-        x_flat = x.view(-1, 1)
+        x_flat = x.view(-1, 1).to(dtype=self.B.dtype)
         projected = torch.matmul(x_flat, self.B.T) * math.pi
         
         sin_feats = torch.sin(projected)
@@ -226,7 +226,8 @@ class H2SoftmaxEngine:
         )
         
         # Stage 2: Exact PICA Scoring with dynamic residual tier
-        opts_with_residual = torch.cat([gathered_opts, self.residual_vector.to(state_rep.device)], dim=1)
+        res_vec = self.residual_vector.to(device=state_rep.device, dtype=state_rep.dtype)
+        opts_with_residual = torch.cat([gathered_opts, res_vec], dim=1)
         exact_logits = self.pica(state_rep, opts_with_residual)
         exact_probs = F.softmax(exact_logits, dim=-1)
         
