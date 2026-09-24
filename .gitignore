@@ -43,3 +43,15 @@ research.txt
 
 # Examples (removed as per project scope)
 examples/
+
+# Internal audit documentation (not for published repo)
+docs/
+
+# Local secrets / tokens
+.env
+*.token
+HF_TOKEN
+
+# Kaggle notebook run logs (large, regenerable)
+kaggle_kernel_log/
+

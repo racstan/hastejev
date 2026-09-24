@@ -1,5 +1,7 @@
 # Architectural Blueprint for hastejev: Overcoming Bottlenecks in Non-Generative System-1 AI Decision Engines
 
+> **DISCLAIMER (2026-09-24 audit):** This document is an **aspirational design proposal**, not a description of implemented systems. Sections claiming a 380M ModernBERT encoder, Rust/C++ zero-copy runtime, mmap arena allocators, HNSW indexes, eBPF XDP bypass, GP-based Range primitive, and benchmark table figures (p99 12.8ms, ECE 0.009, 99.4% arithmetic, etc.) are **not implemented or not reproducible** in this repository. Verified claims are limited to PICA order-invariance and preset parameter counts. See the local audit under `docs/HASTEJEV_AUDIT.md` and re-run `verify_claims.py`.
+
 ## Executive Summary & Paradigm Shift
 
 The emergence of non-generative, probabilistic decision models—termed "System 1" models after Daniel Kahneman’s dual-process cognitive framework—marks a structural pivot in automated software engineering. While conventional large language models (LLMs) operate autoregressively by predicting text token-by-token, System 1 models evaluate structured program states against predefined, typed options in a single parallel forward pass, returning calibrated probabilities rather than conversational text prose.

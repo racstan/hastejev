@@ -3,23 +3,27 @@ import torch
 import torch.nn.functional as F
 from scipy.optimize import minimize
 from sklearn.isotonic import IsotonicRegression
-from typing import Optional
+from typing import List, Optional
 
 class HITCalibrator:
     """
     Hybrid Isotonic-Temperature Calibration (HIT-Calib) Engine.
     Minimizes Expected Calibration Error (ECE) using parametric temperature scaling
-    combined with non-parametric monotonic isotonic regression.
+    combined with non-parametric monotonic isotonic regression (PAVA via sklearn).
     """
     def __init__(self):
         self.temperature = 1.0
         self.iso_regressor = IsotonicRegression(out_of_bounds='clip', y_min=0.001, y_max=0.999)
+        self.isotonic_models: Optional[List[IsotonicRegression]] = None
         self.is_fitted = False
 
     def fit(self, logits: np.ndarray, labels: np.ndarray):
         """
-        Fit temperature parameter T via Negative Log-Likelihood (NLL) optimization.
+        Fit temperature T via NLL, then per-class isotonic maps on temperature-scaled probs.
         """
+        logits = np.asarray(logits, dtype=np.float64)
+        labels = np.asarray(labels, dtype=np.int64)
+
         def nll_objective(T_val):
             T = max(T_val[0], 0.05)
             scaled = logits / T
@@ -30,14 +34,36 @@ class HITCalibrator:
 
         res = minimize(nll_objective, [1.5], bounds=[(0.05, 10.0)], method='L-BFGS-B')
         self.temperature = float(res.x[0])
+
+        scaled = logits / self.temperature
+        exp_scaled = np.exp(scaled - np.max(scaled, axis=1, keepdims=True))
+        probs = exp_scaled / np.sum(exp_scaled, axis=1, keepdims=True)
+
+        n_classes = logits.shape[1]
+        self.isotonic_models = []
+        for c in range(n_classes):
+            iso = IsotonicRegression(out_of_bounds='clip', y_min=0.001, y_max=0.999)
+            iso.fit(probs[:, c], (labels == c).astype(np.float64))
+            self.isotonic_models.append(iso)
         self.is_fitted = True
 
     def calibrate_probs(self, logits: torch.Tensor) -> torch.Tensor:
         """
-        Apply temperature scaling to raw logits.
+        Temperature scaling, then optional per-class isotonic remapping when fitted.
         """
         scaled = logits / self.temperature
-        return F.softmax(scaled, dim=-1)
+        probs = F.softmax(scaled, dim=-1)
+
+        if self.is_fitted and self.isotonic_models:
+            probs_np = probs.detach().cpu().numpy()
+            out = np.empty_like(probs_np)
+            for c, iso in enumerate(self.isotonic_models):
+                out[:, c] = iso.predict(probs_np[:, c])
+            out = np.clip(out, 1e-6, None)
+            out = out / out.sum(axis=-1, keepdims=True)
+            return torch.as_tensor(out, dtype=probs.dtype, device=probs.device)
+
+        return probs
 
     @staticmethod
     def compute_ece(probs: np.ndarray, labels: np.ndarray, n_bins: int = 10) -> float:

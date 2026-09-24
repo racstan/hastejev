@@ -14,17 +14,20 @@ class FastSubwordProjector(nn.Module):
     deterministic character 3-gram, 4-gram, and whole-word trigonometric frequency hashing.
     Enables instant zero-shot semantic matching without heavy pretraining overhead.
     """
+    _CACHE_MAX = 8192
+
     def __init__(self, d_model: int = 256, table_size: int = 65536):
         super().__init__()
         self.d_model = d_model
         self.table_size = table_size
-        
+        self._latent_cache = {}
+
         # Precompute deterministic Gaussian random projection table (SimHash)
         g = torch.Generator().manual_seed(42)
         table = torch.randn(table_size, d_model, generator=g)
         table = F.normalize(table, p=2, dim=-1)
         self.register_buffer("table", table)
-        
+
         self.proj = nn.Sequential(
             nn.Linear(d_model, d_model),
             nn.GELU(),
@@ -37,53 +40,112 @@ class FastSubwordProjector(nn.Module):
     def _clean_words(text: str) -> List[str]:
         return re.findall(r'[a-zA-Z0-9_\-\$]+', text.lower())
 
-    def text_to_latent(self, text: str, device: torch.device) -> torch.Tensor:
+    def _ngram_hashes(self, text: str) -> List[int]:
         words = self._clean_words(text)
         if not words:
-            return torch.zeros((1, 1, self.d_model), device=device)
-        
-        table = self.table.to(device)
+            return []
+        hashes: List[int] = []
+        append = hashes.append
+        crc32 = zlib.crc32
+        mod = self.table_size
+        for w in words[:32]:
+            wb = w.encode("utf-8")
+            append(crc32(b"<" + wb + b">") % mod)
+            append(crc32(wb) % mod)
+            length = len(w)
+            for n in (3, 4):
+                if length < n:
+                    continue
+                for i in range(length - n + 1):
+                    append(crc32(w[i:i + n].encode("utf-8")) % mod)
+        return hashes
+
+    def _embed_texts(self, texts: List[str], device: torch.device) -> torch.Tensor:
+        """Vectorized hash-table gather + segment-sum for a batch of texts (one vector per text)."""
+        all_hashes: List[int] = []
+        counts: List[int] = []
+        for text in texts:
+            h = self._ngram_hashes(text)
+            counts.append(len(h))
+            all_hashes.extend(h)
+
+        batch = len(texts)
+        if not all_hashes:
+            return torch.zeros((1, batch, self.d_model), device=device, dtype=self.table.dtype)
+
+        table = self.table.to(device=device)
+        idx = torch.tensor(all_hashes, dtype=torch.long, device=device)
+        vecs = table[idx]
+
+        counts_t = torch.tensor(counts, dtype=torch.long, device=device)
+        seg_ids = torch.repeat_interleave(
+            torch.arange(batch, device=device, dtype=torch.long),
+            counts_t,
+        )
+        summed = torch.zeros((batch, self.d_model), device=device, dtype=vecs.dtype)
+        summed.index_add_(0, seg_ids, vecs)
+
+        norms = summed.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        summed = summed / norms
+        summed[counts_t == 0] = 0.0
+        return self.proj(summed.unsqueeze(0))
+
+    def _cache_put(self, key: str, value: torch.Tensor) -> None:
+        if len(self._latent_cache) >= self._CACHE_MAX:
+            self._latent_cache.clear()
+        self._latent_cache[key] = value.detach().to("cpu").reshape(-1)
+
+    def text_to_latent(self, text: str, device: torch.device) -> torch.Tensor:
+        """Per-token sequence embedding: one row per word (for the transformer backbone)."""
+        words = self._clean_words(text)
+        if not words:
+            return torch.zeros((1, 1, self.d_model), device=device, dtype=self.table.dtype)
+
+        table = self.table.to(device=device)
         word_vectors = []
         for w in words[:32]:
-            ngrams = [f'<{w}>', w]
+            wb = w.encode("utf-8")
+            hs = [zlib.crc32(b"<" + wb + b">") % self.table_size, zlib.crc32(wb) % self.table_size]
+            length = len(w)
             for n in (3, 4):
-                for i in range(len(w) - n + 1):
-                    ngrams.append(w[i:i+n])
-            hashes = [zlib.crc32(ng.encode('utf-8')) % self.table_size for ng in ngrams]
-            vec = table[hashes].sum(dim=0)
+                if length < n:
+                    continue
+                for i in range(length - n + 1):
+                    hs.append(zlib.crc32(w[i:i + n].encode("utf-8")) % self.table_size)
+            vec = table[hs].sum(dim=0)
             norm = torch.norm(vec, p=2)
             if norm > 1e-6:
                 vec = vec / norm
             word_vectors.append(vec)
-            
+
         stacked = torch.stack(word_vectors, dim=0).unsqueeze(0)
         return self.proj(stacked)
 
     def batch_text_to_latent(self, texts: List[str], device: torch.device) -> torch.Tensor:
-        all_vecs = []
-        table = self.table.to(device)
-        for text in texts:
-            words = self._clean_words(text)
-            if not words:
-                all_vecs.append(torch.zeros(self.d_model, device=device))
-                continue
-            
-            ngrams = []
-            for w in words[:32]:
-                ngrams.append(f'<{w}>')
-                ngrams.append(w)
-                for n in (3, 4):
-                    for i in range(len(w) - n + 1):
-                        ngrams.append(w[i:i+n])
-            hashes = [zlib.crc32(ng.encode('utf-8')) % self.table_size for ng in ngrams]
-            vec = table[hashes].sum(dim=0)
-            norm = torch.norm(vec, p=2)
-            if norm > 1e-6:
-                vec = vec / norm
-            all_vecs.append(vec)
-            
-        stacked = torch.stack(all_vecs, dim=0).unsqueeze(0)
-        return self.proj(stacked)
+        """One pooled vector per text (H2-Softmax option path). Uses a CPU latent cache."""
+        if not texts:
+            return torch.zeros((1, 0, self.d_model), device=device, dtype=self.table.dtype)
+
+        results: List[Optional[torch.Tensor]] = [None] * len(texts)
+        pending_idx: List[int] = []
+        pending_texts: List[str] = []
+        for i, t in enumerate(texts):
+            cached = self._latent_cache.get(t)
+            if cached is not None:
+                results[i] = cached.reshape(-1)
+            else:
+                pending_idx.append(i)
+                pending_texts.append(t)
+
+        if pending_texts:
+            computed = self._embed_texts(pending_texts, device).squeeze(0)
+            for i, t, vec in zip(pending_idx, pending_texts, computed):
+                self._cache_put(t, vec)
+                results[i] = vec.detach().reshape(-1)
+
+        device_vecs = [r.to(device=device) for r in results if r is not None]
+        stacked = torch.stack(device_vecs, dim=0)
+        return stacked.unsqueeze(0)
 
 
 

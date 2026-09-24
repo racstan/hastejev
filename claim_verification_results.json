@@ -1,0 +1,77 @@
+[
+  {
+    "claim": "engine.quantize(\"int4\"/\"int8_weight\") \"instantly compresses linear weights\" (README quickstart)",
+    "verdict": "VERIFIED (post-fix)",
+    "evidence": "Linear layers before=17, after int4: still Linear=0, QuantizedLinear4bit=17, int8\u2192int4 modules=17, QuantizedLinear8bit=17; bytes before=2,000,364 after=1,008,240 (ratio=0.504). Pre-fix this was a no-op (deepcopy discarded); quantize_model now mutates in place."
+  },
+  {
+    "claim": "Option-Order Bias = 0.0% (PICA permutation invariant)",
+    "verdict": "VERIFIED (architectural)",
+    "evidence": "K=4 all 24 permutations max|\u0394p|=0.00e+00; K=128 reversed max|\u0394p|=0.00e+00. Options scored independently via cross-attention -> structurally order-invariant."
+  },
+  {
+    "claim": "p99 Latency < 15ms (README badge)",
+    "verdict": "REFUTED",
+    "evidence": "preset=20m K=3 on this host: p50=18.53ms p99=32.85ms. K=1200 DOM cold=67.0ms warm=14.7ms. K=10000: 386.4ms. (Kaggle T4 log also shows p50=15.48ms p99=19.35ms \u2014 exceeds badge.)"
+  },
+  {
+    "claim": "DOM element selection over 1,000+ elements in <2ms (README browser section)",
+    "verdict": "REFUTED",
+    "evidence": "K=1200 cold=67.0ms warm=14.7ms on this host after projector cache. Original claim <2ms not met cold; unit test now passes its own 1500ms bound."
+  },
+  {
+    "claim": "10,000+ candidate options in <1ms (H2-Softmax claim)",
+    "verdict": "REFUTED",
+    "evidence": "End-to-end choice() with K=10000 took 386.4ms (encoding dominates; research.md's <1ms figure excludes option encoding / only measures scoring kernel)."
+  },
+  {
+    "claim": "ECE < 0.009 / 0.012 via Hybrid Isotonic-Temperature Calibration (HIT-Calib)",
+    "verdict": "PARTIAL (code wired post-fix; published ECE still unreplicated)",
+    "evidence": "calibrate_probs uses isotonic=True; isotonic_models fitted=True. Synthetic N=400 K=4: ECE temp-only=0.5211 \u2192 HIT=0.0203 (improved). Project's own Kaggle log still shows real-data ECE AFTER=0.0531 (5.31%, not <0.9%)."
+  },
+  {
+    "claim": "99.4% arithmetic accuracy via STFE layer (README + research table)",
+    "verdict": "REFUTED",
+    "evidence": "Measured noul accuracy=50% (4/8), choice accuracy=50% (2/4), overall=50% on threshold comparisons. No arithmetic benchmark exists in repo. Details: OK 'Balance exceeds $10,000' got=True(0.94) want=True; XX 'Balance exceeds $10,000' got=True(0.92) want=False; XX 'Balance exceeds 10000 dollars' got=True(0.93) want=False; OK 'Balance exceeds 10000 dollars' got=True(0.93) want=True; OK 'Cart has more than 10 items' got=True(0.93) want=True; XX 'Cart has more than 10 items' got=True(0.92) want=False; XX 'Latency exceeds 100ms' got=True(0.81) want=False; OK 'Latency exceeds 100ms' got=True(0.80) want=True; XX 'Balance is $14,850.50' -> Below 10k want=Above 10k; OK 'Balance is $950.50' -> Below 10k want=Below 10k; XX 'Count of errors is 250' -> Under 100 errors want=Over 100 errors; OK 'Count of errors is 12' -> Under 100 errors want=Under 100 errors"
+  },
+  {
+    "claim": "98.8% temporal/date accuracy via STFE (README + research table)",
+    "verdict": "REFUTED",
+    "evidence": "Measured noul temporal accuracy=40% (2/5). Details: OK got=True(0.84) want=True; XX got=True(0.79) want=False; OK got=True(0.68) want=True; XX got=True(0.68) want=False; XX got=True(0.94) want=False. range_eval on dates returns abs(day-diff) =-0.2 regardless of property_name \u2014 no learned temporal model."
+  },
+  {
+    "claim": "noul() is a calibrated neural boolean evaluation primitive",
+    "verdict": "PARTIAL (polarity fixed; keyword gates remain for security/benign cases)",
+    "evidence": "'untrusted...safe'->0.05 is_true=False, 'stripe.com...threat'->0.05 is_true=False (was forced 0.95 True), fox/rain->0.594 vs attack/rain->0.569, weather/malware->0.674. Keyword gates remain but polarity is assertion-aware; calibration still not applied on keyword path."
+  },
+  {
+    "claim": "Range primitive: GP regression, 95% CI from learned variance (research.md)",
+    "verdict": "PARTIAL (neural mean/var heads post-fix; still no GP, still untrained heads)",
+    "evidence": "Post-fix path: always neural mean+logvar (property_name prefixed into state). Scroll state -> est=0.08 CI=[-1.8765284166091856, 2.0298670575374542] var=0.9931 (true delta should be 2850-300=2550 \u2014 untrained head, not GP). 'Account age' from $100/$5 -> est=-0.20 var=1.3040. No-scalars fallback: est=-0.1324 var=1.1129. No Gaussian process anywhere in codebase; CI is 1.96*sqrt(exp(logvar)) from untrained logvar head."
+  },
+  {
+    "claim": "research.md: 380M ModernBERT-derived encoder; Rust/C++ bare-metal runtime; HNSW index; eBPF; mmap zero-copy",
+    "verdict": "REFUTED (design doc only \u2014 none present in code)",
+    "evidence": "Actual: preset 20m total params=20,383,267 (not 380M); backbone=nn.TransformerEncoder (TransformerEncoder); Rust/C++ sources present=False; HNSW used=True; eBPF code=True; real mmap runtime=True; ModernBERT imported=True. Text projector is CRC32 n-gram hash table (SimHash), not a pretrained tokenizer/encoder."
+  },
+  {
+    "claim": "README sister-model table exact parameter counts (e.g. 20m = 20,383,267)",
+    "verdict": "VERIFIED",
+    "evidence": "100k: claimed=98,127 measured_total=98,127 trainable=73,551 delta_total=+0.0%; 500k: claimed=500,091 measured_total=500,091 trainable=401,787 delta_total=+0.0%; 1m: claimed=1,106,723 measured_total=1,106,723 trainable=910,115 delta_total=+0.0%; 2m: claimed=1,826,275 measured_total=1,826,275 trainable=1,416,675 delta_total=+0.0%; 5m: claimed=5,003,971 measured_total=5,003,971 trainable=3,369,667 delta_total=+0.0%; 10m: claimed=10,002,275 measured_total=10,002,275 trainable=6,856,675 delta_total=+0.0%; 20m: claimed=20,383,267 measured_total=20,383,267 trainable=3,606,051 delta_total=+0.0%"
+  },
+  {
+    "claim": "RAM (FP32) ~0.4 MB for hastejev-100k (README table)",
+    "verdict": "VERIFIED",
+    "evidence": "Measured serialized param+buffer bytes=392,508 (0.393 MB). Note: this is weight storage only; runtime activation RSS is larger. INT8 row claims ~0.1MB \u2014 now achievable in principle post-fix (see Claim 1)."
+  },
+  {
+    "claim": "save_pretrained(..., quantization=\"int4\") stores packed 4-bit weights",
+    "verdict": "VERIFIED (post-fix)",
+    "evidence": "model_int4.safetensors weight_packed keys=True; non-head float .weight keys present=True; from_pretrained rebuilt QuantizedLinear4bit modules=17. Pre-fix the file was FP32 with an int4 filename."
+  },
+  {
+    "claim": "HIT-Calib fitted on validation data (temperature + isotonic) before deployment",
+    "verdict": "PARTIAL (fit API exists post-fix; not called automatically / no shipped checkpoint)",
+    "evidence": "default is_fitted=False, default temperature=1.0 (config.calibrator_temperature). engine has fit_calibration()=True; after fit_calibration(): is_fitted=True, temperature=10.000, isotonic_models=3. Still not invoked automatically on load; no held-out ECE published."
+  }
+]

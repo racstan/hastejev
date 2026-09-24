@@ -15,15 +15,20 @@ class QuantizedLinear8bit(nn.Module):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        
+
         # Buffer for quantized int8 weights
         self.register_buffer("weight_q", torch.zeros((out_features, in_features), dtype=torch.int8))
         self.register_buffer("scales", torch.ones((out_features, 1), dtype=torch.float32))
-        
+
         if bias:
             self.register_buffer("bias", torch.zeros((out_features,), dtype=torch.float32))
         else:
             self.bias = None
+
+    @property
+    def weight(self) -> torch.Tensor:
+        """Dequantized weight view for APIs that read `.weight` (e.g. MultiheadAttention)."""
+        return self.weight_q.to(torch.float32) * self.scales
 
     @classmethod
     def from_float(cls, linear_module: nn.Linear) -> "QuantizedLinear8bit":
@@ -34,7 +39,7 @@ class QuantizedLinear8bit(nn.Module):
             max_val = torch.amax(torch.abs(w), dim=1, keepdim=True).clamp(min=1e-8)
             scales = max_val / 127.0
             q_w = torch.clamp(torch.round(w / scales), -128, 127).to(torch.int8)
-            
+
             q_linear.weight_q.copy_(q_w)
             q_linear.scales.copy_(scales)
             if linear_module.bias is not None:
@@ -58,15 +63,29 @@ class QuantizedLinear4bit(nn.Module):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        
+
         packed_in_features = (in_features + 1) // 2
         self.register_buffer("weight_packed", torch.zeros((out_features, packed_in_features), dtype=torch.uint8))
         self.register_buffer("scales", torch.ones((out_features, 1), dtype=torch.float32))
-        
+
         if bias:
             self.register_buffer("bias", torch.zeros((out_features,), dtype=torch.float32))
         else:
             self.bias = None
+
+    def _dequant_weight(self, dtype: torch.dtype) -> torch.Tensor:
+        low_nibbles = (self.weight_packed & 0x0F).to(torch.int32) - 8
+        high_nibbles = ((self.weight_packed >> 4) & 0x0F).to(torch.int32) - 8
+        out_f, packed_f = self.weight_packed.shape
+        unpacked = torch.zeros((out_f, packed_f * 2), dtype=dtype, device=self.weight_packed.device)
+        unpacked[:, 0::2] = low_nibbles.to(dtype=dtype)
+        unpacked[:, 1::2] = high_nibbles.to(dtype=dtype)
+        return unpacked[:, :self.in_features] * self.scales.to(dtype=dtype)
+
+    @property
+    def weight(self) -> torch.Tensor:
+        """Dequantized weight view for APIs that read `.weight` (e.g. MultiheadAttention)."""
+        return self._dequant_weight(torch.float32)
 
     @classmethod
     def from_float(cls, linear_module: nn.Linear) -> "QuantizedLinear4bit":
@@ -77,22 +96,22 @@ class QuantizedLinear4bit(nn.Module):
             max_val = torch.amax(torch.abs(w), dim=1, keepdim=True).clamp(min=1e-8)
             scales = max_val / 7.0
             q_w = torch.clamp(torch.round(w / scales), -8, 7).to(torch.int32)
-            
+
             # Map signed int4 [-8, 7] to unsigned 4-bit [0, 15] for packing: (q_w + 8) & 0x0F
             q_w_u = (q_w + 8).to(torch.uint8)
-            
+
             # Pack two nibbles per byte: low 4 bits = even col, high 4 bits = odd col
             in_f = linear_module.in_features
             packed_cols = (in_f + 1) // 2
             packed = torch.zeros((linear_module.out_features, packed_cols), dtype=torch.uint8, device=w.device)
-            
+
             even_cols = q_w_u[:, 0::2]
             packed[:, :even_cols.shape[1]] = even_cols & 0x0F
-            
+
             if in_f > 1:
                 odd_cols = q_w_u[:, 1::2]
                 packed[:, :odd_cols.shape[1]] |= (odd_cols & 0x0F) << 4
-                
+
             q_linear.weight_packed.copy_(packed)
             q_linear.scales.copy_(scales)
             if linear_module.bias is not None:
@@ -100,69 +119,74 @@ class QuantizedLinear4bit(nn.Module):
         return q_linear
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Unpack uint8 into two 4-bit values and restore signed range [-8, 7]
-        low_nibbles = (self.weight_packed & 0x0F).to(torch.int32) - 8
-        high_nibbles = ((self.weight_packed >> 4) & 0x0F).to(torch.int32) - 8
-        
-        out_f, packed_f = self.weight_packed.shape
-        unpacked = torch.zeros((out_f, packed_f * 2), dtype=x.dtype, device=x.device)
-        unpacked[:, 0::2] = low_nibbles.to(dtype=x.dtype)
-        unpacked[:, 1::2] = high_nibbles.to(dtype=x.dtype)
-        
-        # Truncate to exact in_features if odd
-        w_dequant = unpacked[:, :self.in_features] * self.scales.to(dtype=x.dtype)
+        w_dequant = self._dequant_weight(x.dtype)
         b = self.bias.to(dtype=x.dtype) if self.bias is not None else None
         return F.linear(x, w_dequant, b)
 
 
 def _replace_linear_with_quantized(module: nn.Module, target_class):
-    for name, child in module.named_children():
-        if isinstance(child, nn.Linear):
+    for name, child in list(module.named_children()):
+        if isinstance(child, nn.Linear) and not isinstance(child, (QuantizedLinear8bit, QuantizedLinear4bit)):
             setattr(module, name, target_class.from_float(child))
+        elif isinstance(child, (QuantizedLinear8bit, QuantizedLinear4bit)):
+            if isinstance(child, target_class):
+                continue
+            float_w = child.weight
+            lin = nn.Linear(child.in_features, child.out_features, bias=child.bias is not None)
+            with torch.no_grad():
+                lin.weight.copy_(float_w.reshape(child.out_features, child.in_features))
+                if child.bias is not None:
+                    lin.bias.copy_(child.bias.reshape(-1).to(lin.bias.dtype))
+            setattr(module, name, target_class.from_float(lin))
         else:
             _replace_linear_with_quantized(child, target_class)
 
 
+def _has_float_linears(module: nn.Module) -> bool:
+    return any(isinstance(m, nn.Linear) for m in module.modules())
+
+
 def quantize_model(model: nn.Module, mode: str) -> nn.Module:
     """
-    Applies quantization to a Haste Jev model.
+    Applies quantization to a Haste Jev model **in place** and returns the same object.
     Supported modes:
-    - 'fp16': Converts floating point weights to half-precision float16
-    - 'bf16': Converts floating point weights to bfloat16
-    - 'int8' / 'int8_dynamic': Uses PyTorch dynamic quantization for linear layers
-    - 'int8_weight': Symmetric per-channel 8-bit weight-only quantization
-    - 'int4': Symmetric per-channel 4-bit nibble-packed weight quantization
+    - 'fp32': full-precision float32
+    - 'fp16': float16
+    - 'bf16': bfloat16
+    - 'int8' / 'int8_dynamic': PyTorch dynamic quantization (falls back to int8_weight)
+    - 'int8_weight': symmetric per-channel 8-bit weight-only quantization
+    - 'int4': symmetric per-channel 4-bit nibble-packed weight quantization
     """
     mode = mode.lower().strip()
-    
+
     if mode == "fp32":
-        return model.float()
-        
+        model.float()
+        return model
+
     elif mode == "fp16":
-        return model.half()
-        
+        model.half()
+        return model
+
     elif mode == "bf16":
-        return model.bfloat16()
-        
+        model.bfloat16()
+        return model
+
     elif mode in ("int8", "int8_dynamic"):
-        try:
-            quantized = torch.ao.quantization.quantize_dynamic(
-                model, {nn.Linear}, dtype=torch.qint8
-            )
-            return quantized
-        except Exception:
-            # Fallback to weight-only 8-bit if dynamic quantization is unsupported on platform
-            return quantize_model(model, "int8_weight")
-            
+        # torch.ao dynamic quant is deprecated and breaks nn.TransformerEncoder
+        # (out_proj.weight access). Use weight-only int8 instead.
+        _replace_linear_with_quantized(model, QuantizedLinear8bit)
+        return model
+
     elif mode == "int8_weight":
-        quantized = copy.deepcopy(model)
-        _replace_linear_with_quantized(quantized, QuantizedLinear8bit)
-        return quantized
-        
+        _replace_linear_with_quantized(model, QuantizedLinear8bit)
+        return model
+
     elif mode in ("int4", "int4_weight", "q4"):
-        quantized = copy.deepcopy(model)
-        _replace_linear_with_quantized(quantized, QuantizedLinear4bit)
-        return quantized
-        
+        _replace_linear_with_quantized(model, QuantizedLinear4bit)
+        return model
+
     else:
-        raise ValueError(f"Unsupported quantization mode '{mode}'. Choose from: 'fp32', 'fp16', 'bf16', 'int8', 'int8_weight', 'int4'")
+        raise ValueError(
+            f"Unsupported quantization mode '{mode}'. "
+            "Choose from: 'fp32', 'fp16', 'bf16', 'int8', 'int8_weight', 'int4'"
+        )

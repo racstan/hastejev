@@ -8,7 +8,7 @@ import numpy as np
 from typing import List, Dict, Any, Tuple, Optional, Union
 
 from hastejev.config import HasteJevConfig
-from hastejev.quantization import quantize_model
+from hastejev.quantization import quantize_model, QuantizedLinear8bit, QuantizedLinear4bit
 from hastejev.layers import STFELayer, ScalarTemporalParser, PICAHead, H2SoftmaxEngine, FastSubwordProjector
 from hastejev.calibration import HITCalibrator
 from hastejev.primitives import ChoiceResult, ScoreResult, NoulResult, RangeResult, SetChoiceResult
@@ -134,20 +134,31 @@ class HasteJevEngine(nn.Module):
 
     def quantize(self, mode: str) -> "HasteJevEngine":
         """
-        Applies quantization to the engine.
-        Modes: 'fp16', 'bf16', 'int8', 'int8_weight', 'int4'
+        Applies quantization to the engine **in place**.
+        Modes: 'fp32', 'fp16', 'bf16', 'int8', 'int8_weight', 'int4'
         """
         quantize_model(self, mode)
-        self.config.quantization = mode
+        self.config.quantization = mode.lower().strip()
+        return self
+
+    def fit_calibration(self, logits, labels) -> "HasteJevEngine":
+        """
+        Fit HIT-Calib (temperature + isotonic) on held-out logits/labels.
+        logits: array-like [N, K], labels: array-like [N]
+        """
+        self.calibrator.fit(np.asarray(logits), np.asarray(labels))
+        self.config.calibrator_temperature = float(self.calibrator.temperature)
         return self
 
     def encode_text(self, text: str) -> torch.Tensor:
         clean_text, scalars = ScalarTemporalParser.parse_text_entities(text)
+        param_dtype = next(self.encoder.parameters(), None)
+        dtype = param_dtype.dtype if param_dtype is not None else torch.float32
         if scalars:
-            scalar_tensor = torch.tensor([scalars], device=self.device, dtype=torch.float32)
+            scalar_tensor = torch.tensor([scalars], device=self.device, dtype=dtype)
         else:
-            scalar_tensor = torch.zeros((1, 0), device=self.device, dtype=torch.float32)
-            
+            scalar_tensor = torch.zeros((1, 0), device=self.device, dtype=dtype)
+
         with torch.no_grad():
             return self.encoder(clean_text, scalar_tensor, device=self.device)
 
@@ -215,22 +226,50 @@ class HasteJevEngine(nn.Module):
         with torch.no_grad():
             s_lower = state.lower()
             a_lower = assertion.lower()
-            
-            has_threat = any(bad in s_lower for bad in ["untrusted", "phishing", "malicious", "threat", "attack", "compromised", "paypa1", "hacked", "leak", "exploit"])
-            is_valid = any(good in s_lower for good in ["stripe.com", "corporate", "internal", "sso", "approved", "valid", "legitimate", "exceeds", "safe", "passed", "store", "product", "cart", "checkout", "review", "order", "login"])
-            
-            if has_threat and any(w in a_lower for w in ["safe", "legitimate", "approved", "policy"]):
+
+            has_threat = any(bad in s_lower for bad in [
+                "untrusted", "phishing", "malicious", "threat", "attack",
+                "compromised", "paypa1", "hacked", "leak", "exploit",
+            ])
+            is_valid = any(good in s_lower for good in [
+                "stripe.com", "corporate", "internal", "sso", "approved",
+                "valid", "legitimate", "exceeds", "safe", "passed",
+                "store", "product", "cart", "checkout", "review", "order", "login",
+            ])
+
+            assertion_positive = any(w in a_lower for w in [
+                "safe", "legitimate", "approved", "policy", "valid", "ok",
+                "allowed", "permitted", "correct", "true", "yes", "secure",
+                "does not violate", "not violate", "compliant",
+            ])
+            assertion_negative = any(w in a_lower for w in [
+                "threat", "malicious", "untrusted", "unsafe", "attack",
+                "phishing", "compromised", "illegitimate", "not safe",
+                "false",
+            ])
+            # "violates" alone is ambiguous with "does not violate" — only treat as
+            # negative when not explicitly negated.
+            if "violat" in a_lower and not any(
+                p in a_lower for p in ("does not violate", "not violate", "without violat")
+            ):
+                assertion_negative = True
+
+            true_prob: Optional[float] = None
+            if has_threat and assertion_positive and not assertion_negative:
                 true_prob = 0.05
-            elif has_threat and any(w in a_lower for w in ["threat", "malicious", "untrusted"]):
+            elif has_threat and assertion_negative:
                 true_prob = 0.95
-            elif is_valid:
+            elif is_valid and assertion_positive and not assertion_negative:
                 true_prob = 0.95
-            else:
+            elif is_valid and assertion_negative and not assertion_positive:
+                true_prob = 0.05
+
+            if true_prob is None:
                 state_rep = self.encode_text(state).mean(dim=1)
                 assert_rep = self.encode_text(assertion).mean(dim=1)
                 sim = F.cosine_similarity(state_rep, assert_rep, dim=-1).item()
                 true_prob = float(1.0 / (1.0 + np.exp(-sim * 4.0)))
-                
+
             return NoulResult(
                 primitive="Noul",
                 assertion=assertion,
@@ -241,25 +280,20 @@ class HasteJevEngine(nn.Module):
 
     def range_eval(self, state: str, property_name: str) -> RangeResult:
         with torch.no_grad():
-            clean_text, scalars = ScalarTemporalParser.parse_text_entities(state)
-            if scalars:
-                if len(scalars) >= 2:
-                    mean = float(abs(scalars[-1] - scalars[0]))
-                else:
-                    mean = float(scalars[0])
-                var = 1.0
-            else:
-                state_rep = self.encode_text(f"{property_name}: {state}").mean(dim=1)
-                mean = self.range_mean(state_rep).item()
-                var = torch.exp(self.range_logvar(state_rep)).item()
-                
+            # Neural path: encode state (with STFE scalars) + property, predict mean & log-var.
+            combined = f"{property_name}: {state}"
+            state_rep = self.encode_text(combined).mean(dim=1)
+            mean = self.range_mean(state_rep).item()
+            var = float(torch.exp(self.range_logvar(state_rep)).item())
+            var = max(var, 1e-8)
+
             std = math.sqrt(var)
             return RangeResult(
                 primitive="Range",
                 property=property_name,
-                estimated_value=mean,
-                confidence_interval_95=[mean - 1.96 * std, mean + 1.96 * std],
-                variance=var
+                estimated_value=float(mean),
+                confidence_interval_95=[float(mean - 1.96 * std), float(mean + 1.96 * std)],
+                variance=float(var)
             )
 
     def set_choice(self, state: str, options: List[str], threshold: float = 0.5) -> SetChoiceResult:
@@ -278,45 +312,67 @@ class HasteJevEngine(nn.Module):
 
     def save_pretrained(self, save_directory: str, quantization: Optional[str] = None):
         """
-        Exports the Haste Jev model in industry-standard format (config.json + model.safetensors + pytorch_model.bin).
+        Exports config.json + model.safetensors (+ pytorch_model.bin).
+
+        If ``quantization`` is given, the module is quantized **in place first**
+        so the written weights are never a mislabeled FP32 copy of an int file.
         """
         import os
         from safetensors.torch import save_file
 
         os.makedirs(save_directory, exist_ok=True)
+
         if quantization:
-            self.config.quantization = quantization
-            
+            mode = quantization.lower().strip()
+            # Apply quantization before serializing so keys/dtypes match the name.
+            # Skip if already in that exact quantized layout.
+            already = False
+            has_packed = any(isinstance(m, QuantizedLinear4bit) for m in self.modules())
+            has_q8 = any(isinstance(m, QuantizedLinear8bit) for m in self.modules())
+            if mode in ("int4", "int4_weight", "q4") and has_packed:
+                already = True
+            elif mode in ("int8", "int8_weight", "int8_dynamic") and has_q8:
+                already = True
+            elif mode in ("fp16",) and next(self.parameters()).dtype == torch.float16:
+                already = True
+            elif mode in ("bf16",) and next(self.parameters()).dtype == torch.bfloat16:
+                already = True
+            elif mode == "fp32" and next(self.parameters()).dtype == torch.float32 and not (has_packed or has_q8):
+                already = True
+            if not already:
+                quantize_model(self, mode)
+            self.config.quantization = mode
+
         config_path = os.path.join(save_directory, "config.json")
         with open(config_path, "w") as f:
             json.dump(self.config.to_dict(), f, indent=2)
-            
-        # Clean state dict for serialization
+
         state = {k: v.cpu() for k, v in self.state_dict().items()}
-        
+
         weights_path_safetensors = os.path.join(save_directory, "model.safetensors")
         save_file(state, weights_path_safetensors)
-        
+
         weights_path_bin = os.path.join(save_directory, "pytorch_model.bin")
         torch.save(state, weights_path_bin)
-        
-        # If specific quantization requested, also save named variant
+
         if quantization:
             q_safetensors = os.path.join(save_directory, f"model_{quantization}.safetensors")
             save_file(state, q_safetensors)
 
     @classmethod
     def from_pretrained(
-        cls, 
-        pretrained_model_name_or_path: str, 
+        cls,
+        pretrained_model_name_or_path: str,
         quantization: Optional[str] = None,
         device: Optional[torch.device] = None
     ) -> "HasteJevEngine":
         """
         Loads a Haste Jev model from a local directory or the Hugging Face Hub (e.g. 'noffy/hastejev-1m').
+        Detects quantized weight layouts (int4 packed / int8 weight-only) from the state dict keys
+        so round-trips of save_pretrained(..., quantization=...) restore the quantized structure.
         """
         import os
-        
+
         model_dir = pretrained_model_name_or_path
         if not os.path.isdir(pretrained_model_name_or_path):
             try:
@@ -324,7 +380,7 @@ class HasteJevEngine(nn.Module):
                 model_dir = snapshot_download(repo_id=pretrained_model_name_or_path)
             except Exception as e:
                 raise ValueError(f"Could not find local directory or download from Hugging Face Hub '{pretrained_model_name_or_path}': {e}")
-                
+
         config_path = os.path.join(model_dir, "config.json")
         if os.path.exists(config_path):
             with open(config_path, "r") as f:
@@ -332,29 +388,58 @@ class HasteJevEngine(nn.Module):
             config = HasteJevConfig.from_dict(cfg_dict)
         else:
             config = HasteJevConfig.from_preset("20m")
-            
-        instance = cls(config=config, device=device)
-        
-        # Select appropriate weights file
+
         safetensors_path = os.path.join(model_dir, "model.safetensors")
         if quantization:
             q_target = os.path.join(model_dir, f"model_{quantization}.safetensors")
             if os.path.exists(q_target):
                 safetensors_path = q_target
-                
         bin_path = os.path.join(model_dir, "pytorch_model.bin")
-        
+
+        state_dict = None
         if os.path.exists(safetensors_path):
             from safetensors.torch import load_file
-            state_dict = load_file(safetensors_path, device=str(instance.device))
-            instance.load_state_dict(state_dict, strict=False)
+            state_dict = load_file(safetensors_path)
         elif os.path.exists(bin_path):
-            state_dict = torch.load(bin_path, map_location=instance.device)
+            state_dict = torch.load(bin_path, map_location="cpu")
+
+        # Detect quantized layout from state dict keys before building modules
+        detected = None
+        if state_dict is not None:
+            keys = list(state_dict.keys())
+            if any(k.endswith("weight_packed") for k in keys):
+                detected = "int4"
+            elif any(k.endswith("weight_q") for k in keys):
+                detected = "int8_weight"
+
+        target_q = quantization or detected or config.quantization
+        instance = cls(config=config, device=device)
+
+        # Build quantized module structure first so load_state_dict matches buffers
+        if detected:
+            instance.quantize(detected)
+        elif target_q and target_q.lower() not in ("fp32", "fp16", "bf16", "int8", "int8_dynamic"):
+            # Requested weight-only quant but weights are still float: quantize after load
+            pass
+
+        if state_dict is not None:
+            # Move to float on CPU for load, then re-apply dtype quant if needed
+            if detected is None and target_q and target_q.lower() in ("fp16", "bf16"):
+                instance.float()
             instance.load_state_dict(state_dict, strict=False)
-            
-        if quantization or config.quantization:
-            target_q = quantization or config.quantization
-            instance.quantize(target_q)
-            
+
+        if detected:
+            pass  # already structured + loaded
+        elif target_q:
+            tq = target_q.lower()
+            if tq in ("int8", "int8_dynamic", "int8_weight", "int4", "int4_weight", "q4"):
+                # Float weights present: apply requested weight quant after load
+                if any(k.endswith(".weight") for k in (state_dict or {})):
+                    instance.quantize(tq)
+                elif quantization or config.quantization:
+                    instance.quantize(tq)
+            elif tq in ("fp16", "bf16"):
+                instance.quantize(tq)
+
         instance.eval()
         return instance

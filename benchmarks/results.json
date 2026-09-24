@@ -1,0 +1,291 @@
+{
+  "meta": {
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "python": "3.14.4",
+    "torch": "2.14.0+cu130",
+    "cuda_available": false,
+    "note": "CPU-oriented micro-benchmark. Latency varies by machine; re-run locally."
+  },
+  "results": [
+    {
+      "Preset": "100k",
+      "Quantization": "fp32",
+      "Total Params": 98127,
+      "p50_ms": 15.563,
+      "p99_ms": 40.798,
+      "qps": 64.3,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "100k",
+      "Quantization": "fp16",
+      "Total Params": 98127,
+      "p50_ms": 9.889,
+      "p99_ms": 26.618,
+      "qps": 101.1,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "100k",
+      "Quantization": "int8_weight",
+      "Total Params": 98922,
+      "p50_ms": 9.395,
+      "p99_ms": 18.415,
+      "qps": 106.4,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "100k",
+      "Quantization": "int4",
+      "Total Params": 73518,
+      "p50_ms": 17.835,
+      "p99_ms": 32.943,
+      "qps": 56.1,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "500k",
+      "Quantization": "fp32",
+      "Total Params": 500091,
+      "p50_ms": 10.445,
+      "p99_ms": 20.803,
+      "qps": 95.7,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "500k",
+      "Quantization": "fp16",
+      "Total Params": 500091,
+      "p50_ms": 11.816,
+      "p99_ms": 58.259,
+      "qps": 84.6,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "500k",
+      "Quantization": "int8_weight",
+      "Total Params": 502254,
+      "p50_ms": 13.958,
+      "p99_ms": 24.204,
+      "qps": 71.6,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "500k",
+      "Quantization": "int4",
+      "Total Params": 359286,
+      "p50_ms": 32.354,
+      "p99_ms": 41.401,
+      "qps": 30.9,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "1m",
+      "Quantization": "fp32",
+      "Total Params": 1106723,
+      "p50_ms": 12.26,
+      "p99_ms": 20.746,
+      "qps": 81.6,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "1m",
+      "Quantization": "fp16",
+      "Total Params": 1106723,
+      "p50_ms": 12.564,
+      "p99_ms": 17.122,
+      "qps": 79.6,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "1m",
+      "Quantization": "int8_weight",
+      "Total Params": 1110374,
+      "p50_ms": 20.324,
+      "p99_ms": 40.254,
+      "qps": 49.2,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "1m",
+      "Quantization": "int4",
+      "Total Params": 782534,
+      "p50_ms": 46.45,
+      "p99_ms": 57.593,
+      "qps": 21.5,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "2m",
+      "Quantization": "fp32",
+      "Total Params": 1826275,
+      "p50_ms": 15.576,
+      "p99_ms": 31.828,
+      "qps": 64.2,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "2m",
+      "Quantization": "fp16",
+      "Total Params": 1826275,
+      "p50_ms": 14.421,
+      "p99_ms": 18.169,
+      "qps": 69.3,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "2m",
+      "Quantization": "int8_weight",
+      "Total Params": 1830838,
+      "p50_ms": 21.878,
+      "p99_ms": 51.594,
+      "qps": 45.7,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "2m",
+      "Quantization": "int4",
+      "Total Params": 1319918,
+      "p50_ms": 49.828,
+      "p99_ms": 70.695,
+      "qps": 20.1,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "5m",
+      "Quantization": "fp32",
+      "Total Params": 5003971,
+      "p50_ms": 20.014,
+      "p99_ms": 31.549,
+      "qps": 50.0,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "5m",
+      "Quantization": "fp16",
+      "Total Params": 5003971,
+      "p50_ms": 15.981,
+      "p99_ms": 20.196,
+      "qps": 62.6,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "5m",
+      "Quantization": "int8_weight",
+      "Total Params": 5011702,
+      "p50_ms": 34.538,
+      "p99_ms": 42.59,
+      "qps": 29.0,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "5m",
+      "Quantization": "int4",
+      "Total Params": 3787486,
+      "p50_ms": 90.569,
+      "p99_ms": 596.505,
+      "qps": 11.0,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "10m",
+      "Quantization": "fp32",
+      "Total Params": 10002275,
+      "p50_ms": 33.742,
+      "p99_ms": 83.035,
+      "qps": 29.6,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "10m",
+      "Quantization": "fp16",
+      "Total Params": 10002275,
+      "p50_ms": 22.533,
+      "p99_ms": 47.994,
+      "qps": 44.4,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "10m",
+      "Quantization": "int8_weight",
+      "Total Params": 10013318,
+      "p50_ms": 63.042,
+      "p99_ms": 79.615,
+      "qps": 15.9,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "10m",
+      "Quantization": "int4",
+      "Total Params": 7519478,
+      "p50_ms": 162.357,
+      "p99_ms": 209.876,
+      "qps": 6.2,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "20m",
+      "Quantization": "fp32",
+      "Total Params": 20383267,
+      "p50_ms": 23.373,
+      "p99_ms": 40.272,
+      "qps": 42.8,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "20m",
+      "Quantization": "fp16",
+      "Total Params": 20383267,
+      "p50_ms": 16.684,
+      "p99_ms": 28.266,
+      "qps": 59.9,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "20m",
+      "Quantization": "int8_weight",
+      "Total Params": 20390566,
+      "p50_ms": 30.665,
+      "p99_ms": 49.912,
+      "qps": 32.6,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    },
+    {
+      "Preset": "20m",
+      "Quantization": "int4",
+      "Total Params": 19087718,
+      "p50_ms": 102.396,
+      "p99_ms": 259.058,
+      "qps": 9.8,
+      "order_bias_pct": 0.0,
+      "iters": 30
+    }
+  ]
+}

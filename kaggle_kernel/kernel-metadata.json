@@ -1,15 +1,14 @@
 {
-  "id": "rachitasthana/hastejev-system1-decision-engine",
-  "title": "Hastejev System1 Decision Engine",
-  "code_file": "hastejev_system1_engine.ipynb",
+  "id": "rachitasthana/hastejev-sister-models-and-quantization",
+  "title": "hastejev sister models and quantization",
+  "code_file": "hastejev_sister_models_suite.ipynb",
   "language": "python",
   "kernel_type": "notebook",
-  "is_private": "true",
+  "is_private": "false",
   "enable_gpu": "true",
   "enable_tpu": "false",
   "enable_internet": "true",
   "dataset_sources": [],
-  "competition_sources": [],
   "kernel_sources": [],
-  "model_sources": []
+  "competition_sources": []
 }
