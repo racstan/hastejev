@@ -138,6 +138,8 @@ class HasteJevEngine(nn.Module):
         Modes: 'fp32', 'fp16', 'bf16', 'int8', 'int8_weight', 'int4'
         """
         quantize_model(self, mode)
+        # Replacement modules must share the engine device (CUDA vs CPU).
+        self.to(self.device)
         self.config.quantization = mode.lower().strip()
         return self
 
@@ -441,5 +443,7 @@ class HasteJevEngine(nn.Module):
             elif tq in ("fp16", "bf16"):
                 instance.quantize(tq)
 
+        # Ensure every buffer/param (incl. quantized replacements) lives on engine.device
+        instance.to(instance.device)
         instance.eval()
         return instance

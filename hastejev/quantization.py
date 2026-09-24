@@ -33,6 +33,8 @@ class QuantizedLinear8bit(nn.Module):
     @classmethod
     def from_float(cls, linear_module: nn.Linear) -> "QuantizedLinear8bit":
         q_linear = cls(linear_module.in_features, linear_module.out_features, bias=linear_module.bias is not None)
+        # Keep replacement modules on the same device as the source weights.
+        q_linear = q_linear.to(device=linear_module.weight.device)
         with torch.no_grad():
             w = linear_module.weight.data.float()
             # Per-channel symmetric scaling: scale = max(|w|, dim=1) / 127.0
@@ -43,13 +45,13 @@ class QuantizedLinear8bit(nn.Module):
             q_linear.weight_q.copy_(q_w)
             q_linear.scales.copy_(scales)
             if linear_module.bias is not None:
-                q_linear.bias.copy_(linear_module.bias.data.float())
+                q_linear.bias.copy_(linear_module.bias.data.float().to(q_linear.bias.device))
         return q_linear
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # On-the-fly dequantization: W = weight_q.float() * scales
-        w_dequant = self.weight_q.to(dtype=x.dtype) * self.scales.to(dtype=x.dtype)
-        b = self.bias.to(dtype=x.dtype) if self.bias is not None else None
+        w_dequant = self.weight_q.to(device=x.device, dtype=x.dtype) * self.scales.to(device=x.device, dtype=x.dtype)
+        b = self.bias.to(device=x.device, dtype=x.dtype) if self.bias is not None else None
         return F.linear(x, w_dequant, b)
 
 
@@ -90,6 +92,8 @@ class QuantizedLinear4bit(nn.Module):
     @classmethod
     def from_float(cls, linear_module: nn.Linear) -> "QuantizedLinear4bit":
         q_linear = cls(linear_module.in_features, linear_module.out_features, bias=linear_module.bias is not None)
+        # Keep replacement modules on the same device as the source weights.
+        q_linear = q_linear.to(device=linear_module.weight.device)
         with torch.no_grad():
             w = linear_module.weight.data.float()
             # Per-channel symmetric scaling: scale = max(|w|, dim=1) / 7.0
@@ -112,15 +116,18 @@ class QuantizedLinear4bit(nn.Module):
                 odd_cols = q_w_u[:, 1::2]
                 packed[:, :odd_cols.shape[1]] |= (odd_cols & 0x0F) << 4
 
-            q_linear.weight_packed.copy_(packed)
-            q_linear.scales.copy_(scales)
+            q_linear.weight_packed.copy_(packed.to(q_linear.weight_packed.device))
+            q_linear.scales.copy_(scales.to(q_linear.scales.device))
             if linear_module.bias is not None:
-                q_linear.bias.copy_(linear_module.bias.data.float())
+                q_linear.bias.copy_(linear_module.bias.data.float().to(q_linear.bias.device))
         return q_linear
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Dequantize onto the activation device so CUDA activations match weights.
         w_dequant = self._dequant_weight(x.dtype)
-        b = self.bias.to(dtype=x.dtype) if self.bias is not None else None
+        if w_dequant.device != x.device:
+            w_dequant = w_dequant.to(device=x.device)
+        b = self.bias.to(device=x.device, dtype=x.dtype) if self.bias is not None else None
         return F.linear(x, w_dequant, b)
 
 
@@ -132,11 +139,12 @@ def _replace_linear_with_quantized(module: nn.Module, target_class):
             if isinstance(child, target_class):
                 continue
             float_w = child.weight
-            lin = nn.Linear(child.in_features, child.out_features, bias=child.bias is not None)
+            src_device = float_w.device
+            lin = nn.Linear(child.in_features, child.out_features, bias=child.bias is not None, device=src_device)
             with torch.no_grad():
-                lin.weight.copy_(float_w.reshape(child.out_features, child.in_features))
+                lin.weight.copy_(float_w.reshape(child.out_features, child.in_features).to(src_device))
                 if child.bias is not None:
-                    lin.bias.copy_(child.bias.reshape(-1).to(lin.bias.dtype))
+                    lin.bias.copy_(child.bias.reshape(-1).to(device=src_device, dtype=lin.bias.dtype))
             setattr(module, name, target_class.from_float(lin))
         else:
             _replace_linear_with_quantized(child, target_class)

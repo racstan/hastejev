@@ -12,17 +12,17 @@
   {
     "claim": "p99 Latency < 15ms (README badge)",
     "verdict": "REFUTED",
-    "evidence": "preset=20m K=3 on this host: p50=18.53ms p99=32.85ms. K=1200 DOM cold=67.0ms warm=14.7ms. K=10000: 386.4ms. (Kaggle T4 log also shows p50=15.48ms p99=19.35ms \u2014 exceeds badge.)"
+    "evidence": "preset=20m K=3 on this host: p50=18.44ms p99=40.70ms. K=1200 DOM cold=69.7ms warm=12.8ms. K=10000: 363.8ms. (Kaggle T4 log also shows p50=15.48ms p99=19.35ms \u2014 exceeds badge.)"
   },
   {
     "claim": "DOM element selection over 1,000+ elements in <2ms (README browser section)",
     "verdict": "REFUTED",
-    "evidence": "K=1200 cold=67.0ms warm=14.7ms on this host after projector cache. Original claim <2ms not met cold; unit test now passes its own 1500ms bound."
+    "evidence": "K=1200 cold=69.7ms warm=12.8ms on this host after projector cache. Original claim <2ms not met cold; unit test now passes its own 1500ms bound."
   },
   {
     "claim": "10,000+ candidate options in <1ms (H2-Softmax claim)",
     "verdict": "REFUTED",
-    "evidence": "End-to-end choice() with K=10000 took 386.4ms (encoding dominates; research.md's <1ms figure excludes option encoding / only measures scoring kernel)."
+    "evidence": "End-to-end choice() with K=10000 took 363.8ms (encoding dominates; research.md's <1ms figure excludes option encoding / only measures scoring kernel)."
   },
   {
     "claim": "ECE < 0.009 / 0.012 via Hybrid Isotonic-Temperature Calibration (HIT-Calib)",
