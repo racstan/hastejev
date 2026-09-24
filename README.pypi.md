@@ -1,5 +1,6 @@
 # Haste Jev: Non-Generative System-1 AI Decision Engine
 
+[![PyPI](https://img.shields.io/pypi/v/hastejev.svg)](https://pypi.org/project/hastejev/)
 [![Hugging Face Model Family](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-noffy%2Fhastejev-yellow)](https://huggingface.co/noffy/hastejev)
 [![GitHub Repository](https://img.shields.io/badge/GitHub-racstan%2Fhastejev-black?logo=github)](https://github.com/racstan/hastejev)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
