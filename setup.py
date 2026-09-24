@@ -22,7 +22,7 @@ setup(
     },
     author="hastejev Team",
     description="Ultra-Low-Latency System-1 AI Decision Engine",
-    long_description=open("README.md", encoding="utf-8").read() if open("README.md", encoding="utf-8") else "",
+    long_description=open("README.pypi.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/racstan/hastejev",
     license="Apache-2.0",

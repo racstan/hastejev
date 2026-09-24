@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "hastejev"
 version = "1.1.0"
 description = "Ultra-Low-Latency System-1 AI Decision Engine"
-readme = "README.md"
+readme = "README.pypi.md"
 requires-python = ">=3.8"
 license = { text = "Apache-2.0" }
 authors = [
@@ -40,3 +40,10 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/racstan/hastejev"
 Repository = "https://github.com/racstan/hastejev"
+
+[tool.setuptools.packages.find]
+include = ["hastejev*"]
+exclude = ["tests*", "benchmarks*", "scripts*", "docs*", "kaggle_kernel*"]
+
+[tool.setuptools]
+zip-safe = false
